@@ -10,6 +10,8 @@ import datetime
 import numpy as np
 from PIL import Image, ImageDraw
 from skimage import measure
+from matplotlib import pyplot as plt
+
 
 def mask2box(mask):
     """Convert binary mask to bounding box(x, y, w, h)
@@ -29,45 +31,68 @@ def mask2box(mask):
     return [x1, y1, x2-x1, y2-y1]
 
 def points2box(points):
-	xmin, ymin, xmax, ymax = points[0][0], points[0][1], points[0][0], points[0][1]
-	for point in points[1:]:
-		if point[0] > xmax:
-			xmax = point[0]
-		if point[1] > ymax:
-			ymax = point[1]
-		if point[0] < xmin:
-			xmin = point[0]
-		if point[1] < ymin:
-			ymin = point[1]
-	return [int(xmin), int(ymin), int(xmax-xmin), int(ymax-ymin)]
+    """
+        find the min and max coordinates
+        TODO 改成numpy max and min
+    """
+    xmin, ymin, xmax, ymax = points[0][0], points[0][1], points[0][0], points[0][1]
+    for point in points[1:]:
+        if point[0] > xmax:
+            xmax = point[0]
+        if point[1] > ymax:
+            ymax = point[1]
+        if point[0] < xmin:
+            xmin = point[0]
+        if point[1] < ymin:
+            ymin = point[1]
+    return [int(xmin), int(ymin), int(xmax-xmin), int(ymax-ymin)]
+
 
 def annos2masks(annos, width, height):
     masks = []
+
+    # Iterate through each annotation in the list
     for it in annos:
+        # If the annotation label is 'spear', create a black image of size (width, height)
+        # and draw the annotation polygon on the image using ImageDraw.Draw().polygon()
         if it['label'] == 'spear':
             img = Image.new('L', (width, height), 0)
             points_tuple = [ (point[0], point[1]) for point in it['points'] ]
             ImageDraw.Draw(img).polygon(points_tuple, outline=1, fill=1)
             mask = np.array(img)
+        # If the annotation label is something else, use the annotation points directly as the mask
         else:
+            # TODO 非嫩莖的標記後面沒有用掉 應可以跳過？
             mask = it['points']
-        masks.append({'mask': mask, 'bbox': points2box(it['points']), 'label': it['label'], 'shape_type': it['shape_type']})
+
+        # Append the mask and other relevant information to the masks list
+        masks.append({'mask': mask,
+                      'bbox': points2box(it['points']),
+                      'label': it['label'],
+                      'shape_type': it['shape_type']})
+    plt.imshow(masks[0]["mask"], cmap="gray")
+    # plt.show()
     return masks
+
 
 def masks2annos(masks):
     annos = []
     for mask in masks:
         if mask['label'] == 'spear':
-            segmentation = measure.find_contours(mask["mask"].T, 0.5)
+            segmentation = measure.find_contours(mask["mask"].T, level=0.5)
             # print(segmentation)
             for seg in segmentation:
                 # print(seg)
                 new_seg = []
+
+                # TODO 確認用途
+                # 猜：如果是被貼上的標記經過縮小後會有太多點
                 if len(seg) > 30:
-                    for i in range(0, len(seg), int(len(seg)/30)):
+                    for i in range(0, len(seg), int(len(seg)/30)): # split into 30 parts
                         new_seg.append(seg[i].tolist())
                 else:
-                	new_seg = [ s.tolist() for s in seg]
+                    new_seg = [ s.tolist() for s in seg]
+
                 annos.append(dict(
                     label=mask['label'], points=new_seg, group_id=None, shape_type=mask['shape_type'], flags=dict()
                 ))
@@ -151,37 +176,38 @@ def img_add(image, masks, image_2, masks_2):
     for mask_2 in masks_2:
         if mask_2['label'] == 'spear':
             # [x, y, w, h] = mask2box(mask_2['mask'])
-            
+
             image_size = image.shape
             image_2_size = image_2.shape
             ratio_x = image_size[1]/image_2_size[1]
             ratio_y = image_size[0]/image_2_size[0]
-            
-                      
+
+
             [x, y, w, h] = mask_2['bbox']
             image_2_sub = image_2 * np.stack((mask_2['mask'],)*3, axis=-1)
-            image_2_sub = image_2_sub[y:y+h, x:x+w, :]
-            mask_2_sub = mask_2['mask'][int(y):int(y+h), int(x):int(x+w)]
-            
+            image_2_sub = image_2_sub[y:y+h, x:x+w, :] # image_2_sub = 單純蘆筍影像
+            mask_2_sub = mask_2['mask'][int(y):int(y+h), int(x):int(x+w)] # mask_2_sub = 單純蘆筍遮罩
+
             #image_2_sub = cv2.resize(image_2_sub,(int(image_2_sub.shape[1]*ratio_y),int(image_2_sub.shape[0]*ratio_x)))
-            #mask_2_sub = cv2.resize(mask_2_sub,(int(mask_2_sub.shape[1]*ratio_y),int(mask_2_sub.shape[0]*ratio_x)))           
-            
+            #mask_2_sub = cv2.resize(mask_2_sub,(int(mask_2_sub.shape[1]*ratio_y),int(mask_2_sub.shape[0]*ratio_x)))
+
             #cv2.imwrite('test.jpg', image_2_sub)
             #print("mask : ",mask_2_sub.shape)
             #print("image : ",image_2_sub.shape)
-            
+
             #[x, y, w, h] = [int(x*ratio_x), int(y*ratio_y), mask_2_sub.shape[1], mask_2_sub.shape[0]]
-            
-            
+
+            # get ramdom xy position to be pasted
             new_x, new_y = random.randint(0, width-w), random.randint(0, height-h)
-                        
+
             new_image_2 = np.zeros((height, width, 3), dtype=np.uint8)
-            new_image_2[new_y:new_y+h, new_x:new_x+w, :] = image_2_sub
+            new_image_2[new_y:new_y+h, new_x:new_x+w, :] = image_2_sub # 全黑背景只有嫩莖影像
             new_mask_2 = np.zeros((height, width), dtype=np.uint8)
-            new_mask_2[new_y:new_y+h, new_x:new_x+w] = mask_2_sub
-            new_image_sub = image * np.stack((new_mask_2,)*3, axis=-1)
+            new_mask_2[new_y:new_y+h, new_x:new_x+w] = mask_2_sub # 全0背景只有蘆嫩莖區域為1
+            new_image_sub = image * np.stack((new_mask_2,)*3, axis=-1) # 得到新照片要被貼上的區域照片，等待被扣掉
             image -= new_image_sub
-            image += new_image_2
+            image += new_image_2 # 用嫩莖影像貼上
+
             # [x, y, w, h] = mask2box(mask_2['mask'])
             # print(x, y, w, h)
             # image_2_sub = image_2 * np.stack((mask_2['mask'],)*3, axis=-1)
@@ -197,7 +223,8 @@ def img_add(image, masks, image_2, masks_2):
             # image[new_y:h, new_x:w] = dst
             # new_mask_2 = np.zeros((height, width), dtype=np.uint8)
             # new_mask_2[new_y:h, new_x:w] = mask_2_sub
-            masks.append({'mask': new_mask_2, 'label': mask_2['label'], 'shape_type': mask_2['shape_type']})
+
+            masks.append({'mask': new_mask_2, 'label': mask_2['label'], 'shape_type': mask_2['shape_type']}) # without "bbox"
     return image, masks
 
 def copy_paste(image, masks, image_2, masks_2):
@@ -212,16 +239,16 @@ def copy_paste(image, masks, image_2, masks_2):
     Returns:
         [type]: [description]
     """
-    image, masks = LSJ(image, masks)
-    image_2, masks_2 = LSJ(image_2, masks_2)
+    # image, masks = LSJ(image, masks)
+    # image_2, masks_2 = LSJ(image_2, masks_2)
 
     image, masks = img_add(image, masks, image_2, masks_2)
     return image, masks
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_dir", default="/home/ubuntu/detectron2/datasets/coco/annotations2/train_dir", help="Input image directory.")
-    parser.add_argument("--input_dir_2", default="/home/ubuntu/detectron2/datasets/coco/annotations2/train_dir", help="Input image directory.")
+    parser.add_argument("--input_dir", default="/home/ubuntu/detectron2/datasets/coco/annotations2/train_dir", help="Input image directory.") # 要被貼上的
+    parser.add_argument("--input_dir_2", default="/home/ubuntu/detectron2/datasets/coco/annotations2/train_dir", help="Input image directory.") # 貼上的素材來源 (應該)
     parser.add_argument("--output_dir", default="/home/ubuntu/detectron2/copypaste")
     args = parser.parse_args()
     return args
@@ -232,11 +259,13 @@ def main(args):
     image_list_2 = [ image for image in os.listdir(args.input_dir_2) if image.endswith('.jpg') or image.endswith('.jpeg') or image.endswith('.JPG') ]
     output_list = [ image for image in os.listdir(os.path.join(args.output_dir, 'dataset/')) if image.endswith('.jpg') or image.endswith('.JPG') ]
     # print(image_list_2)
-    
+
     # create output path
     os.makedirs(os.path.join(args.output_dir, 'dataset'), exist_ok=True)
 
     now = datetime.datetime.now()
+
+    # not be used
     new_annotations = dict(
         info=dict(
             description=None,
@@ -262,29 +291,28 @@ def main(args):
             {"supercategory": None, "id": 0, "name": "_background_"}, {"supercategory": None, "id": 1, "name": "clump"}, {"supercategory": None, "id": 2, "name": "stalk"}, {"supercategory": None, "id": 3, "name": "spear"}
         ],
     )
-
+    # not be used
     labels = {1: 'clump', 2: 'stalk' , 3: 'spear'}
 
     for image_name in tqdm.tqdm(image_list):
         # load image and masks
-        if image_name in output_list or image_name == '2625.jpg':
+        if (image_name in output_list) or (image_name == '2625.jpg'): # 2625效果不好，跳過
             continue
         image = cv2.imread(os.path.join(args.input_dir, image_name))
         with open(os.path.join(args.input_dir, image_name[:-4]+'.json'), 'r') as jsonfile:
             annotations = json.load(jsonfile)
         annos, width, height = annotations['shapes'], annotations['imageWidth'], annotations['imageHeight']
         masks = annos2masks(annos, width, height)
-        
+
         # random image and masks
         random.shuffle(image_list_2)
-        # print(image_list_2)
-        image_2 = cv2.imread(os.path.join(args.input_dir_2, image_list_2[0]))
+        image_2 = cv2.imread(os.path.join(args.input_dir_2, image_list_2[0])) # 每次都取打亂後的第一張照片來做貼上
         print('Current image: ', image_name, '&', image_list_2[0])
         with open(os.path.join(args.input_dir_2, image_list_2[0][:-4]+'.json'), 'r') as jsonfile:
             annotations_2 = json.load(jsonfile)
         annos_2, width_2, height_2 = annotations_2['shapes'], annotations_2['imageWidth'], annotations_2['imageHeight']
         masks_2 = annos2masks(annos_2, width_2, height_2)
-        
+
         # perform copy-paste
         new_image, new_masks = copy_paste(image, masks, image_2, masks_2)
         cv2.imwrite(os.path.join(args.output_dir, 'dataset', image_name), new_image)
@@ -305,7 +333,7 @@ def main(args):
         with open(os.path.join(args.output_dir, image_name[:-4]+'.json'), 'w+') as jsonfile:
             json.dump(content, jsonfile, indent=2)
 
-    
+
 
 if __name__ == "__main__":
     args = get_args()

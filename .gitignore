@@ -67,3 +67,7 @@ output/
 detectron2_i/
 datasets/coco/
 .git_toolman_0110backup/
+GETTING_STARTED.md
+INSTALL.md
+MODEL_ZOO.md
+README.md
