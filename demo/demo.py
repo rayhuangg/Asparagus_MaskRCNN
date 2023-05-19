@@ -40,6 +40,9 @@ def setup_cfg(args):
     return cfg
 
 
+    
+
+
 def get_parser():
     parser = argparse.ArgumentParser(description="Detectron2 demo for builtin models")
     parser.add_argument(
@@ -261,6 +264,6 @@ if __name__ == "__main__":
                 #         print('path length:', path_lengths)
                 #         print('score: ', pred_scores[i])
                 #         print('width:', width)
-                        
+
                 if args.json_output:
                     json_output(args.json_output, predictions, filename, path)
