@@ -60,8 +60,11 @@ class VisualizationDemo(object):
                     predictions["sem_seg"].argmax(dim=0).to(self.cpu_device)
                 )
             if "instances" in predictions:
-                instances = predictions["instances"][predictions['instances'].pred_classes != 1].to(self.cpu_device)
-                # instances = predictions["instances"].to(self.cpu_device)
+                # Only get the spear class, for pseudo label used
+                # instances = predictions["instances"][predictions['instances'].pred_classes != 1].to(self.cpu_device)
+
+                # Official code
+                instances = predictions["instances"].to(self.cpu_device)
                 vis_output = visualizer.draw_instance_predictions(predictions=instances)
 
         return predictions, vis_output

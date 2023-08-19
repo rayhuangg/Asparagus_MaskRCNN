@@ -1,14 +1,19 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import argparse
 import glob
 import multiprocessing as mp
-import numpy as np
 import os
-import tempfile
 import time
-import warnings
 import cv2
+import csv
 import tqdm
+import pickle
+import base64
+import json
+import numpy as np
+from PIL import Image
+from skimage import measure, morphology
+from pycocotools import mask
 
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
@@ -23,9 +28,6 @@ WINDOW_NAME = "COCO detections"
 def setup_cfg(args):
     # load config from file and command-line arguments
     cfg = get_cfg()
-    # To use demo for Panoptic-DeepLab, please uncomment the following two lines.
-    # from detectron2.projects.panoptic_deeplab import add_panoptic_deeplab_config  # noqa
-    # add_panoptic_deeplab_config(cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
     # Set score_threshold for builtin models
@@ -37,7 +39,7 @@ def setup_cfg(args):
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(description="Detectron2 demo for builtin configs")
+    parser = argparse.ArgumentParser(description="Detectron2 demo for builtin models")
     parser.add_argument(
         "--config-file",
         default="configs/quick_schedules/mask_rcnn_R_50_FPN_inference_acc_test.yaml",
@@ -57,7 +59,10 @@ def get_parser():
         help="A file or directory to save output visualizations. "
         "If not given, will show output in an OpenCV window.",
     )
-
+    parser.add_argument(
+        "--json_output",
+        help="Directory for json result output."
+        )
     parser.add_argument(
         "--confidence-threshold",
         type=float,
@@ -72,22 +77,99 @@ def get_parser():
     )
     return parser
 
+def json_output(output, predictions, filename, path):
+    '''
+    Save predictions as json file
+    '''
+    out_filename = os.path.join(output, filename) + '.json'
+    with open(path, 'rb') as img_file:
+        img_data = base64.b64encode(img_file.read()).decode("utf-8")
+    labels = {1: 'clump', 2: 'stalk' , 3: 'spear', 4: 'bar'}
+    image_height, image_width = predictions['instances'].image_size
+    pred_boxes = np.asarray(predictions["instances"].pred_boxes)
+    scores = predictions['instances'].scores.cpu().numpy()
+    pred_classes = predictions['instances'].pred_classes.cpu().numpy()
+    pred_masks = predictions["instances"].pred_masks.cpu().numpy()
 
-def test_opencv_video_format(codec, file_ext):
-    with tempfile.TemporaryDirectory(prefix="video_format_test") as dir:
-        filename = os.path.join(dir, "test_file" + file_ext)
-        writer = cv2.VideoWriter(
-            filename=filename,
-            fourcc=cv2.VideoWriter_fourcc(*codec),
-            fps=float(30),
-            frameSize=(10, 10),
-            isColor=True,
-        )
-        [writer.write(np.zeros((10, 10, 3), np.uint8)) for _ in range(30)]
-        writer.release()
-        if os.path.isfile(filename):
-            return True
-        return False
+    content = {
+    "version": "4.5.5",
+    "flags": {},
+    "shapes": [
+    ],
+    "imagePath": filename,
+    "imageData": img_data,
+    "imageHeight": image_height,
+    "imageWidth": image_width
+    }
+
+    for i in range(len(pred_classes)):
+        if pred_classes[i] == 1:
+            bbox = pred_boxes[i].cpu().numpy().tolist()
+            shape ={
+            "label": "clump",
+            "points": [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
+            "group_id": i,
+            "shape_type": "rectangle",
+            "flags": {}
+            }
+            content["shapes"].append(shape)
+        else:
+            segmentation = pred_masks[i]
+            segmentation = measure.find_contours(segmentation.T, 0.5)
+            for j in range(len(segmentation)):
+                seg = segmentation[j].tolist()
+                if len(seg) > 30:
+                    new_seg = []
+                    for k in range(0, len(seg), int(len(seg)/30)):
+                        new_seg.append(seg[i])
+                    seg = new_seg
+                shape = {
+                "label": labels[pred_classes[i]],
+                "points": seg,
+                "group_id": i,
+                "shape_type": "polygon",
+                "flags": {}
+                }
+                content["shapes"].append(shape)
+    with open(out_filename, 'w+') as jsonfile:
+        json.dump(content, jsonfile, indent=2)
+
+def mask2skeleton(pred_mask):
+    """
+    Convert pred_masek into skeleton.
+
+    Parameters:
+        pred_mask(list): 2d list of boolean, Fasle for bg, True for fg.
+
+    Returns:
+        skeleton(list): 2d list of 0 and 1, o for bg, 1 for skeleton
+    """
+    pred_mask = np.asarray(pred_mask) + 0
+    skeleton = morphology.skeletonize(pred_mask)
+    return skeleton
+
+def csv_out(predictions, filename, path):
+    labels = {1: 'clump', 2: 'stalk' , 3: 'spear'}
+    image_height, image_width = predictions['instances'].image_size
+    pred_boxes = np.asarray(predictions["instances"].pred_boxes)
+    scores = predictions['instances'].scores.cpu().numpy()
+    pred_classes = predictions['instances'].pred_classes.cpu().numpy()
+    pred_masks = predictions["instances"].pred_masks.cpu().numpy()
+    table = []
+    for i in range(len(pred_classes)):
+        if pred_classes[i] == 3:
+            boxs = pred_boxes[i].cpu().numpy().tolist()
+            skeleton = mask2skeleton(pred_masks[i]).tolist()
+            length_skeleton = np.count_nonzero(skeleton)
+            length_box = boxs[3] - boxs[1]
+            table.append([i, boxs[0], boxs[1], boxs[2], boxs[3], mask.encode(np.asfortranarray(pred_masks[i])), length_skeleton, length_box])
+    table = sorted(table, key = lambda x: x[1])
+    for i in range(len(table)):
+        table[i][0] = i
+    table = [['id', 'box(xmin)', 'box(ymin)', 'box(xmax)', 'box(ymax)', 'mask', 'length(skeleton)', 'length(box)']] + table
+    with open(os.path.join(path, filename) + '.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(table)
 
 
 if __name__ == "__main__":
@@ -128,6 +210,31 @@ if __name__ == "__main__":
                     assert len(args.input) == 1, "Please specify a directory with args.output"
                     out_filename = args.output
                 visualized_output.save(out_filename)
+                filename = path.split('/')[-1][:-4]
+                #csv_out(predictions, filename, args.json_output)
+                #print(predictions)
+                if args.json_output:
+                    json_output(args.json_output, predictions, filename, path)
+                #with open('inference_result.txt', 'wb') as resultfile:
+                #    for
+                #print(np.asarray(predictions["instances"].pred_boxes[0])[0].cpu().numpy())
+                #print(len(predictions["instances"].pred_boxes[0]))
+                #print(type(np.asarray(predictions["instances"].pred_boxes[0])[0].cpu().numpy()))
+
+
+                #print(predictions['instances'].pred_masks.cpu().numpy()[1])
+                #testmask = predictions['instances'].pred_masks.cpu().numpy()[1]
+                #print(type(testmask))
+                #testseg = measure.find_contours(testmask, 0.5)
+                #print(len(testseg))
+                #print(type(testseg))
+                #print(type(testseg[0]))
+                #print(np.asarray(predictions["instances"].pred_boxes)[1].cpu().numpy().tolist())
+                #with open(path, 'rb') as img_file:
+                #	print(type(base64.b64encode(img_file.read()).decode("utf-8")))
+                #	base64.b64encode(img_file.read()).decode("utf-8")[:100]
+
+
             else:
                 cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
                 cv2.imshow(WINDOW_NAME, visualized_output.get_image()[:, :, ::-1])
@@ -151,15 +258,11 @@ if __name__ == "__main__":
         frames_per_second = video.get(cv2.CAP_PROP_FPS)
         num_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
         basename = os.path.basename(args.video_input)
-        codec, file_ext = (
-            ("x264", ".mkv") if test_opencv_video_format("x264", ".mkv") else ("mp4v", ".mp4")
-        )
-        if codec == ".mp4v":
-            warnings.warn("x264 codec not available, switching to mp4v")
+
         if args.output:
             if os.path.isdir(args.output):
                 output_fname = os.path.join(args.output, basename)
-                output_fname = os.path.splitext(output_fname)[0] + file_ext
+                output_fname = os.path.splitext(output_fname)[0] + ".mkv"
             else:
                 output_fname = args.output
             assert not os.path.isfile(output_fname), output_fname
@@ -167,7 +270,7 @@ if __name__ == "__main__":
                 filename=output_fname,
                 # some installation of opencv may not support x264 (due to its license),
                 # you can try other format (e.g. MPEG)
-                fourcc=cv2.VideoWriter_fourcc(*codec),
+                fourcc=cv2.VideoWriter_fourcc(*"x264"),
                 fps=float(frames_per_second),
                 frameSize=(width, height),
                 isColor=True,

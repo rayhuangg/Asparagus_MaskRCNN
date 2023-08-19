@@ -1,8 +1,4 @@
-
-## Detectron2 Demo
-
-We provide a command line tool to run a simple demo of builtin configs.
-The usage is explained in [GETTING_STARTED.md](../GETTING_STARTED.md).
-
-See our [blog post](https://ai.facebook.com/blog/-detectron2-a-pytorch-based-modular-object-detection-library-)
-for a high-quality demo generated with this tool.
+## 檔案說明
+`demo.py`: 原始Detectron2 demo code，單純產生預測結果
+`demo_adam.py`: 世鈺最後產生pseudo label檔案，記得改名，輸出的類別只有母嫩莖
+`demo_justin.py`: 熊哥code，和世鈺的差不多內容，輸出的類別包含clump

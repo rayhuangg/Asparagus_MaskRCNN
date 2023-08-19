@@ -1,27 +1,21 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Facebook, Inc. and its affiliates.
 import argparse
 import glob
 import multiprocessing as mp
-import os
-import time
-import cv2
-import csv
-import tqdm
-import pickle
-import base64
-import json
 import numpy as np
-from PIL import Image
-from skimage import measure, morphology
-from pycocotools import mask
+import os
+import tempfile
+import time
+import warnings
+import cv2
+import tqdm
 
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
 from detectron2.utils.logger import setup_logger
+from detectron2.data.datasets import register_coco_instances
 
 from predictor import VisualizationDemo
-# from plantcv import plantcv as pcv
-# pcv.params.bebug = 'print'
 
 # constants
 WINDOW_NAME = "COCO detections"
@@ -30,6 +24,9 @@ WINDOW_NAME = "COCO detections"
 def setup_cfg(args):
     # load config from file and command-line arguments
     cfg = get_cfg()
+    # To use demo for Panoptic-DeepLab, please uncomment the following two lines.
+    # from detectron2.projects.panoptic_deeplab import add_panoptic_deeplab_config  # noqa
+    # add_panoptic_deeplab_config(cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
     # Set score_threshold for builtin models
@@ -40,11 +37,8 @@ def setup_cfg(args):
     return cfg
 
 
-    
-
-
 def get_parser():
-    parser = argparse.ArgumentParser(description="Detectron2 demo for builtin models")
+    parser = argparse.ArgumentParser(description="Detectron2 demo for builtin configs")
     parser.add_argument(
         "--config-file",
         default="configs/quick_schedules/mask_rcnn_R_50_FPN_inference_acc_test.yaml",
@@ -64,10 +58,7 @@ def get_parser():
         help="A file or directory to save output visualizations. "
         "If not given, will show output in an OpenCV window.",
     )
-    parser.add_argument(
-        "--json_output",
-        help="Directory for json result output."
-        )
+
     parser.add_argument(
         "--confidence-threshold",
         type=float,
@@ -82,103 +73,42 @@ def get_parser():
     )
     return parser
 
-def json_output(output, predictions, filename, path):
-    '''
-    Save predictions as json file
-    '''
-    out_filename = os.path.join(output, filename) + '.json'
-    with open(path, 'rb') as img_file:
-        img_data = base64.b64encode(img_file.read()).decode("utf-8")
-    # labels = {1: 'clump', 2: 'stalk' , 3: 'spear', 4: 'bar'}
-    labels = {1: 'stalk' , 2: 'spear'}
-    image_height, image_width = predictions['instances'].image_size
-    pred_boxes = np.asarray(predictions["instances"].pred_boxes)
-    scores = predictions['instances'].scores.cpu().numpy()
-    pred_classes = predictions['instances'].pred_classes.cpu().numpy()
-    pred_masks = predictions["instances"].pred_masks.cpu().numpy()
 
-    content = {
-    "version": "4.5.5",
-    "flags": {},
-    "shapes": [
-    ],
-    "imagePath": filename,
-    "imageData": img_data,
-    "imageHeight": image_height,
-    "imageWidth": image_width
-    }
+def test_opencv_video_format(codec, file_ext):
+    with tempfile.TemporaryDirectory(prefix="video_format_test") as dir:
+        filename = os.path.join(dir, "test_file" + file_ext)
+        writer = cv2.VideoWriter(
+            filename=filename,
+            fourcc=cv2.VideoWriter_fourcc(*codec),
+            fps=float(30),
+            frameSize=(10, 10),
+            isColor=True,
+        )
+        [writer.write(np.zeros((10, 10, 3), np.uint8)) for _ in range(30)]
+        writer.release()
+        if os.path.isfile(filename):
+            return True
+        return False
 
-    for i in range(len(pred_classes)):
-#        if pred_classes[i] == 1:
-#            bbox = pred_boxes[i].cpu().numpy().tolist()
-#            shape ={
-#            "label": "clump",
-#            "points": [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
-#            "group_id": i,
-#            "shape_type": "rectangle",
-#            "flags": {}
-#            }
-#            content["shapes"].append(shape)
-#        else:
-        segmentation = pred_masks[i]
-        segmentation = measure.find_contours(segmentation.T, 0.5)
-        for seg in segmentation:
-            new_seg = []
-            if len(seg) > 30:
-                for k in range(0, len(seg), int(len(seg)/30)):
-                    new_seg.append(seg[k].tolist())
-            else:
-                new_seg = [s.tolist() for s in seg]
-            shape = {
-            "label": labels[pred_classes[i]],
-            "points": new_seg,
-            "group_id": i,
-            "shape_type": "polygon",
-            "flags": {}
-            }
-            content["shapes"].append(shape)
-    with open(out_filename, 'w+') as jsonfile:
-        json.dump(content, jsonfile, indent=2)
+def register_my_dataset():
+    #========= Register COCO dataset =========
+    metadata = {"thing_classes": ["stalk", "spear"],
+                "thing_colors": [(41,245,0), (200,6,6)]}
+    # small test
+    # register_coco_instances('asparagus_train_small', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230721_test/instances_train2017.json", "home/rayhuang/Asparagus_Dataset")
+    # register_coco_instances('asparagus_val_small', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230721_test/instances_val2017.json", "home/rayhuang/Asparagus_Dataset")
 
-def mask2skeleton(pred_mask):
-    """
-    Convert pred_masek into skeleton.
+    # full data
+    # register_coco_instances('asparagus_train_full', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230627_Adam_ver/instances_train2017.json", "home/rayhuang/Asparagus_Dataset")
+    # register_coco_instances('asparagus_val_full', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230627_Adam_ver/instances_val2017.json", "home/rayhuang/Asparagus_Dataset")
 
-    Parameters:
-        pred_mask(list): 2d list of boolean, Fasle for bg, True for fg.
-
-    Returns:
-        skeleton(list): 2d list of 0 and 1, o for bg, 1 for skeleton
-    """
-    pred_mask = np.asarray(pred_mask) + 0
-    skeleton = morphology.skeletonize(pred_mask)
-    return skeleton
-
-def csv_out(predictions, filename, path):
-    labels = {1: 'clump', 2: 'stalk' , 3: 'spear'}
-    image_height, image_width = predictions['instances'].image_size
-    pred_boxes = np.asarray(predictions["instances"].pred_boxes)
-    scores = predictions['instances'].scores.cpu().numpy()
-    pred_classes = predictions['instances'].pred_classes.cpu().numpy()
-    pred_masks = predictions["instances"].pred_masks.cpu().numpy()
-    table = []
-    for i in range(len(pred_classes)):
-        if pred_classes[i] == 3:
-            boxs = pred_boxes[i].cpu().numpy().tolist()
-            skeleton = mask2skeleton(pred_masks[i]).tolist()
-            length_skeleton = np.count_nonzero(skeleton)
-            length_box = boxs[3] - boxs[1]
-            table.append([i, boxs[0], boxs[1], boxs[2], boxs[3], mask.encode(np.asfortranarray(pred_masks[i])), length_skeleton, length_box])
-    table = sorted(table, key = lambda x: x[1])
-    for i in range(len(table)):
-        table[i][0] = i
-    table = [['id', 'box(xmin)', 'box(ymin)', 'box(xmax)', 'box(ymax)', 'mask', 'length(skeleton)', 'length(box)']] + table
-    with open(os.path.join(path, filename) + '.csv', 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerows(table)
+    # full data
+    register_coco_instances('asparagus_train_full_1920', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230817_1920_1080_full/instances_train2017.json", "/home/rayhuang/Asparagus_Dataset")
+    register_coco_instances('asparagus_val_full_1920', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230817_1920_1080_full/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
 
 
 if __name__ == "__main__":
+    # register_my_dataset()
     mp.set_start_method("spawn", force=True)
     args = get_parser().parse_args()
     setup_logger(name="fvcore")
@@ -216,54 +146,61 @@ if __name__ == "__main__":
                     assert len(args.input) == 1, "Please specify a directory with args.output"
                     out_filename = args.output
                 visualized_output.save(out_filename)
-                filename = path.split('/')[-1][:-4]
-
-                # pred_classes = predictions['instances'].pred_classes.cpu().numpy()
-                # pred_scores = predictions['instances'].scores.cpu().numpy()
-                # pred_boxes = np.asarray(predictions["instances"].pred_boxes)
-                # pred_masks = predictions["instances"].pred_masks.cpu().numpy()
-                # pred_all = []
-                # for i in range(len(pred_classes)):
-                #     try:
-                #         pred_all.append([pred_classes[i], pred_scores[i], pred_boxes[i], pred_masks[i]])
-                #     except:
-                #         pass
-                # pred_all = sorted(pred_all, key=lambda x: x[0])
-
-                # pred_classes, pred_scores, pred_boxes, pred_masks = [], [], [], []
-                # for i in range(len(pred_all)):
-                #     pred_classes.append(pred_all[i][0])
-                #     pred_scores.append(pred_all[i][1])
-                #     pred_boxes.append(pred_all[i][2])
-                #     pred_masks.append(pred_all[i][3])
-
-                # for i in range(len(pred_classes)):
-                #     if pred_classes[i] == 3:
-                #         segmentation = pred_masks[i].astype(np.uint8)
-                #         props = measure.regionprops(segmentation)
-                #         for prop in props:
-                #             print(i)
-                #             print('Length:', prop.major_axis_length)
-                #             print('Width: ', prop.minor_axis_length)
-                #             print('---')
-                #         skeleton = pcv.morphology.skeletonize(mask=segmentation)
-                #         segmented_img, obj = pcv.morphology.segment_skeleton(skel_img=skeleton)
-                #         labeled_img = pcv.morphology.segment_path_length(segmented_img=segmented_img, objects=obj, label="default")
-                #         path_lengths = pcv.outputs.observations['default']['segment_path_length']['value']
-                #         height = np.count_nonzero(skeleton)
-                #         widths = []
-                #         for j, row in enumerate(skeleton):
-                #             for k, p in enumerate(row):
-                #                 if p:
-                #                     widths.append(distance_transformation[j, k])
-                #         width = round((sum(widths)/len(widths)), 2)
-                #         print('skeleton:', type(skeleton))
-                #         cv2.imwrite(os.path.join(args.output, 'spear_'+filename+'_'+str(i)+'.jpg'), segmented_img)
-                #         print(obj)
-                #         print('height: ', height)
-                #         print('path length:', path_lengths)
-                #         print('score: ', pred_scores[i])
-                #         print('width:', width)
-
-                if args.json_output:
-                    json_output(args.json_output, predictions, filename, path)
+            else:
+                cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+                cv2.imshow(WINDOW_NAME, visualized_output.get_image()[:, :, ::-1])
+                if cv2.waitKey(0) == 27:
+                    break  # esc to quit
+    elif args.webcam:
+        assert args.input is None, "Cannot have both --input and --webcam!"
+        assert args.output is None, "output not yet supported with --webcam!"
+        cam = cv2.VideoCapture(0)
+        for vis in tqdm.tqdm(demo.run_on_video(cam)):
+            cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+            cv2.imshow(WINDOW_NAME, vis)
+            if cv2.waitKey(1) == 27:
+                break  # esc to quit
+        cam.release()
+        cv2.destroyAllWindows()
+    elif args.video_input:
+        video = cv2.VideoCapture(args.video_input)
+        width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frames_per_second = video.get(cv2.CAP_PROP_FPS)
+        num_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        basename = os.path.basename(args.video_input)
+        codec, file_ext = (
+            ("x264", ".mkv") if test_opencv_video_format("x264", ".mkv") else ("mp4v", ".mp4")
+        )
+        if codec == ".mp4v":
+            warnings.warn("x264 codec not available, switching to mp4v")
+        if args.output:
+            if os.path.isdir(args.output):
+                output_fname = os.path.join(args.output, basename)
+                output_fname = os.path.splitext(output_fname)[0] + file_ext
+            else:
+                output_fname = args.output
+            assert not os.path.isfile(output_fname), output_fname
+            output_file = cv2.VideoWriter(
+                filename=output_fname,
+                # some installation of opencv may not support x264 (due to its license),
+                # you can try other format (e.g. MPEG)
+                fourcc=cv2.VideoWriter_fourcc(*codec),
+                fps=float(frames_per_second),
+                frameSize=(width, height),
+                isColor=True,
+            )
+        assert os.path.isfile(args.video_input)
+        for vis_frame in tqdm.tqdm(demo.run_on_video(video), total=num_frames):
+            if args.output:
+                output_file.write(vis_frame)
+            else:
+                cv2.namedWindow(basename, cv2.WINDOW_NORMAL)
+                cv2.imshow(basename, vis_frame)
+                if cv2.waitKey(1) == 27:
+                    break  # esc to quit
+        video.release()
+        if args.output:
+            output_file.release()
+        else:
+            cv2.destroyAllWindows()
