@@ -18,7 +18,7 @@ You may want to write your own script with your datasets and other customization
 
 import logging
 import os
-from datetime import date
+from datetime import date, datetime
 from collections import OrderedDict
 from torch.utils.tensorboard import SummaryWriter
 
@@ -131,33 +131,43 @@ def setup(args):
     """
     cfg = get_cfg()
     cfg.merge_from_file(args.config_file)
-    cfg.merge_from_list(args.opts)
+    date = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if args.eval_only:
+        train_outdir = cfg.OUTPUT_DIR
+        cfg.OUTPUT_DIR = f"{train_outdir}_evaluation_time-{date}"
+        os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
-    cfg.OUTPUT_DIR = f"./output/{date.today().strftime('%Y%m%d')}"
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    cfg.merge_from_list(args.opts)
 
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
 
+def register_my_dataset():
+    #========= Register COCO dataset =========
+    metadata = {"thing_classes": ["stalk", "spear"],
+                "thing_colors": [(41,245,0), (200,6,6)]}
+    metadata_background = {"thing_classes": ["_background_","stalk", "spear"], # unknown reason: MaskRCNN label will from 1 to 2
+                           "thing_colors": [(255,255,255), (41,245,0), (200,6,6)]}
+
+    # small test
+    # register_coco_instances('asparagus_train_small', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230721_test/instances_train2017.json", "/home/rayhuang/Asparagus_Dataset")
+    # register_coco_instances('asparagus_val_small', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230721_test/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
+
+    # full data
+    # register_coco_instances('asparagus_train_full_1920', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230817_Adam_1920/instances_train2017.json", "/home/rayhuang/Asparagus_Dataset")
+    # register_coco_instances('asparagus_val_full_1920', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230817_Adam_1920/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
+    # register_coco_instances('asparagus_val_full', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230817_Adam_1920/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
+    # register_coco_instances('asparagus_val', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230803_test_small_dataset_with_background_class/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
+    # register_coco_instances('asparagus_val', metadata_background, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230627_Adam_ver/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
+
+    # Adam raw valdation
+    # register_coco_instances('asparagus_val', {'_background_': 0, 'stalk': 1, 'spear': 2}, "/home/rayhuang/Asparagus_Dataset/val/annotations.json", "/home/rayhuang/Asparagus_Dataset/val")
+    register_coco_instances('asparagus_val', {}, "/home/rayhuang/Asparagus_Dataset/val/annotations.json", "/home/rayhuang/Asparagus_Dataset/val")
+
 
 def main(args):
-    # ==== 在Webserver使用，訓練完母嫩莖模型後再繼續train一個包括吸管水管的模型做使用，平常不會用到 ====
-    # register_coco_instances('asparagus_train', {'_background_': 0, 'clump': 1, 'stalk': 2, 'spear': 3, 'bar': 4, 'straw': 5} , "./datasets/coco/annotations/train/annotations.json", "./datasets/coco/annotations/train")
-    # register_coco_instances('asparagus_train', {'_background_': 0, 'clump': 1, 'stalk': 2, 'spear': 3, 'bar': 4, 'straw': 5} , "./datasets/coco/annotations/train_copy/annotations.json", "./datasets/coco/annotations/train_copy")
-    # register_coco_instances('asparagus_val', {'_background_': 0, 'clump': 1, 'stalk': 2, 'spear': 3, 'bar': 4, 'straw': 5} , "./datasets/coco/annotations/val/annotations.json", "./datasets/coco/annotations/val")
-
-    # ==== Old version: with clump labels ====
-    # register_coco_instances('asparagus_train', {'_background_': 0, 'clump': 1, 'stalk': 2, 'spear': 3} , "./datasets/coco/annotations/train_copy/annotations.json", "./datasets/coco/annotations/train_copy")
-    # register_coco_instances('asparagus_val', {'_background_': 0, 'clump': 1, 'stalk': 2, 'spear': 3} , "./datasets/coco/annotations/val/annotations.json", "./datasets/coco/annotations/val")
-
-    # ==== Now version: without clump labels ====
-    # register_coco_instances('asparagus_train', {'_background_': 0, 'stalk': 1, 'spear': 2} , "./datasets/coco/annotations2/train/annotations.json", "./datasets/coco/annotations2/train_copy")
-    register_coco_instances('asparagus_train', {'_background_': 0, 'stalk': 1, 'spear': 2} , "./datasets/coco/annotations2/train_copy/annotations.json", "./datasets/coco/annotations2/train_copy")
-    # register_coco_instances('asparagus_train', {'_background_': 0, 'stalk': 1, 'spear': 2} , "./datasets/coco/annotations2/iter1_copy/annotations.json", "./datasets/coco/annotations2/iter1_copy")
-    register_coco_instances('asparagus_val', {'_background_': 0, 'stalk': 1, 'spear': 2} , "./datasets/coco/annotations2/val/annotations.json", "./datasets/coco/annotations2/val")
-
-
+    register_my_dataset()
     cfg = setup(args)
 
     if args.eval_only:

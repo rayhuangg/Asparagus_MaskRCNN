@@ -13,6 +13,7 @@ import tqdm
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
 from detectron2.utils.logger import setup_logger
+from detectron2.utils.visualizer import ColorMode
 from detectron2.data.datasets import register_coco_instances
 
 from predictor import VisualizationDemo
@@ -91,20 +92,15 @@ def test_opencv_video_format(codec, file_ext):
         return False
 
 def register_my_dataset():
+
     #========= Register COCO dataset =========
     metadata = {"thing_classes": ["stalk", "spear"],
                 "thing_colors": [(41,245,0), (200,6,6)]}
-    # small test
-    # register_coco_instances('asparagus_train_small', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230721_test/instances_train2017.json", "home/rayhuang/Asparagus_Dataset")
-    # register_coco_instances('asparagus_val_small', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230721_test/instances_val2017.json", "home/rayhuang/Asparagus_Dataset")
+    metadata_background = {"thing_classes": ["_background_","stalk", "spear"], # unknown reason: MaskRCNN label will from 1 to 2
+                           "thing_colors": [(255,255,255), (41,245,0), (200,6,6)]}
 
-    # full data
-    # register_coco_instances('asparagus_train_full', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230627_Adam_ver/instances_train2017.json", "home/rayhuang/Asparagus_Dataset")
-    # register_coco_instances('asparagus_val_full', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230627_Adam_ver/instances_val2017.json", "home/rayhuang/Asparagus_Dataset")
-
-    # full data
-    register_coco_instances('asparagus_train_full_1920', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230817_1920_1080_full/instances_train2017.json", "/home/rayhuang/Asparagus_Dataset")
-    register_coco_instances('asparagus_val_full_1920', metadata, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230817_1920_1080_full/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
+    # for MaskRCNN demo usage
+    register_coco_instances('asparagus_val', metadata_background, "/home/rayhuang/Asparagus_Dataset/COCO_Format/20230627_Adam_ver_background/instances_val2017.json", "/home/rayhuang/Asparagus_Dataset")
 
 
 if __name__ == "__main__":
@@ -117,7 +113,7 @@ if __name__ == "__main__":
 
     cfg = setup_cfg(args)
 
-    demo = VisualizationDemo(cfg)
+    demo = VisualizationDemo(cfg, instance_mode=ColorMode.SEGMENTATION)
 
     if args.input:
         if len(args.input) == 1:
