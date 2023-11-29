@@ -104,7 +104,7 @@ def register_my_dataset():
 
 
 if __name__ == "__main__":
-    # register_my_dataset()
+    register_my_dataset()
     mp.set_start_method("spawn", force=True)
     args = get_parser().parse_args()
     setup_logger(name="fvcore")

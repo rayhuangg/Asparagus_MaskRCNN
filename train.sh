@@ -9,9 +9,10 @@
 # CUDA_VISIBLE_DEVICES=0 python3 tools/train_net.py --config-file configs/COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml --num-gpus 3 --resume MODEL.WEIGHTS "/home/ubuntu/detectron2/output/20220503_teacher_model/model_final.pth" SOLVER.IMS_PER_BATCH 6
 
 # 20230107 test
-CUDA_VISIBLE_DEVICES=1,2 python3 tools/train_net.py \
+CUDA_VISIBLE_DEVICES=1 python3 tools/train_net.py \
     --config-file configs/COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml \
-    --num-gpus 2 \
-    --resume MODEL.WEIGHTS "/home/ubuntu/detectron2/output/20220503_teacher_model/model_final.pth" \
+    --num-gpus 1 \
+    --resume MODEL.WEIGHTS "/home/rayhuang/MaskRCNN/output/pretrain_model_justin/model_final.pth" \
     SOLVER.IMS_PER_BATCH 4 \
-    SOLVER.MAX_ITER 5000
+    SOLVER.MAX_ITER 5000 \
+    DATASETS.TRAIN '("asparagus_train_small",)'
