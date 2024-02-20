@@ -59,7 +59,10 @@ def get_parser():
         help="A file or directory to save output visualizations. "
         "If not given, will show output in an OpenCV window.",
     )
-
+    parser.add_argument(
+        "--json_output",
+        help="Directory for json result output."
+        )
     parser.add_argument(
         "--confidence-threshold",
         type=float,
@@ -71,6 +74,23 @@ def get_parser():
         help="Modify config options using the command-line 'KEY VALUE' pairs",
         default=[],
         nargs=argparse.REMAINDER,
+    )
+    parser.add_argument(
+        "--csv_out",
+        action='store_true',
+        default=False,
+        help="Determine whether to export the stalk count csv file",
+    )
+    parser.add_argument(
+        "--output-filename",
+        default=None,
+        type=str,
+        help="Determine the output extension filename",
+    )
+    parser.add_argument(
+        "--not_draw_bbox",
+        action="store_true",
+        help="Determine whether the demo output need to draw the bbox box.",
     )
     return parser
 
@@ -123,7 +143,7 @@ if __name__ == "__main__":
             # use PIL, to be consistent with evaluation
             img = read_image(path, format="BGR")
             start_time = time.time()
-            predictions, visualized_output = demo.run_on_image(img)
+            predictions, visualized_output = demo.run_on_image(img, args.not_draw_bbox)
             logger.info(
                 "{}: {} in {:.2f}s".format(
                     path,
@@ -136,11 +156,20 @@ if __name__ == "__main__":
 
             if args.output:
                 if os.path.isdir(args.output):
-                    assert os.path.isdir(args.output), args.output
-                    out_filename = os.path.join(args.output, os.path.basename(path))
+                    # assert os.path.isdir(args.output), args.output
+                    if args.output_filename is not None:
+                        base_name = os.path.splitext(os.path.basename(path))[0]  # Get the name of the file that does not include the expansion name
+                        out_filename = os.path.join(args.output, f"{base_name}{args.output_filename}.jpg")
+                    else:
+                        out_filename = os.path.join(args.output, os.path.basename(path))
                 else:
-                    assert len(args.input) == 1, "Please specify a directory with args.output"
-                    out_filename = args.output
+                    # assert len(args.input) == 1, "Please specify a directory with args.output"
+                    os.makedirs(args.output)
+                    if args.output_filename is not None:
+                        base_name = os.path.splitext(os.path.basename(path))[0]  # Get the name of the file that does not include the expansion name
+                        out_filename = os.path.join(args.output, f"{base_name}{args.output_filename}.jpg")
+                    else:
+                        out_filename = os.path.join(args.output, os.path.basename(path))
                 visualized_output.save(out_filename)
             else:
                 cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)

@@ -34,7 +34,7 @@ class VisualizationDemo(object):
         else:
             self.predictor = DefaultPredictor(cfg)
 
-    def run_on_image(self, image):
+    def run_on_image(self, image, not_draw_bbox):
         """
         Args:
             image (np.ndarray): an image of shape (H, W, C) (in BGR order).
@@ -65,6 +65,8 @@ class VisualizationDemo(object):
 
                 # Official code
                 instances = predictions["instances"].to(self.cpu_device)
+                if not_draw_bbox:
+                    instances.remove('pred_boxes')
                 vis_output = visualizer.draw_instance_predictions(predictions=instances)
 
         return predictions, vis_output
